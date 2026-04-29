@@ -1,7 +1,7 @@
 ---
 name: oss-contributor
 description: Autonomous open source contribution workflow — discover good first issues, implement fixes, submit PRs, and log outcomes.
-version: 1.1.0
+version: 1.2.1
 author: BlutAgent
 license: MIT
 metadata:
@@ -97,15 +97,30 @@ fi
 
 ### Step 2: Discover Issues
 
-Search for good first issues:
+Search for good first issues using multiple label variants. **GitHub's search API may return zero results for beginner labels** — the `good first issue` label is used inconsistently across repos, and `gh search` may scope it differently than raw API queries. Always try multiple label formats and fallback strategies.
 
 ```bash
-# TypeScript issues
-curl -s "https://api.github.com/search/issues?q=label:\"good+first+issue\"+language:TypeScript+state:open&sort=updated&order=desc&per_page=15" > /tmp/ts_issues.json
+# Try multiple label formats — at least one should return results if any exist
+LABELS=("good first issue" "good-first-issue" "help wanted" "first-timers-only" "beginner" "easy")
 
-# Python issues
-curl -s "https://api.github.com/search/issues?q=label:\"good+first+issue\"+language:Python+state:open&sort=updated&order=desc&per_page=15" > /tmp/py_issues.json
+for label in "${LABELS[@]}"; do
+  echo "Searching for label: $label"
+  gh search issues --json number,title,repository,labels,state,updatedAt,commentsCount --limit 10 \
+    "label:\"$label\" language:TypeScript state:open sort:updated" > "/tmp/issues_${label}.json" 2>/dev/null
+  count=$(python3 -c "import json; print(len(json.load(open('/tmp/issues_${label}.json'))))" 2>/dev/null || echo "0")
+  echo "  Found: $count issues"
+  if [ "$count" -gt 0 ]; then
+    break
+  fi
+done
+
+# If all labels returned 0, fall back to heuristic scoring below
 ```
+
+**If all label searches return zero results:**
+1. The label simply isn't used in the repos you care about — proceed to heuristic scoring
+2. Try searching within specific repos you follow (see Step 2.5)
+3. Try the REST API directly with `curl` to `https://api.github.com/search/issues?q=label:"good+first+issue"+state:open` — sometimes `gh search` has different scoping
 
 ### Step 2.5: Verify Issue Is Unclaimed (CRITICAL)
 
@@ -506,8 +521,16 @@ Sort descending and pick the highest-scored unassigned issue with a clear descri
 | Fork remote not configured locally | After `gh repo fork`, the remote may not be added. `git remote add myfork <fork-url> && git fetch myfork` to access branches. |
 | `patch` matches wrong entry in repetitive JSON/array files | When appending to a JSON array where entries share similar structure (e.g., same keys, similar closing patterns), `old_string` can fuzzy-match the wrong entry — especially if you use a generic closing brace/quote pattern. **Fix:** Use the unique content of the **actual last entry** as the anchor (e.g., last entry's unique color value, unique ID field), not the structural closing pattern like `"secondaryColor": "...",  },`. Then verify with `git diff` immediately. |
 | `gh search issues --json` field name is `commentsCount` not `comments` | The `gh` CLI uses different field names than the REST API. Use `commentsCount` (camelCase), not `comments`. Run `gh search issues --json help` to see available fields if unsure. |
+| `gh pr create` fails with "Head sha can't be blank" on fork PRs | When pushing to a fork and creating a PR to the upstream repo, `gh pr create` may fail with "Head sha can't be blank, Base sha can't be blank, No commits between main..." if the `--head` flag is omitted. **Fix:** Always specify `--head <your-username>:<branch>` explicitly when the PR head is on a fork: `gh pr create --repo upstream/repo --base main --head blut-agent:feature-branch ...`. Without it, gh may not resolve the fork's branch reference. |
 | Terminal output truncated at 20,000 chars for large API responses | Raw `curl` to GitHub search API returns large JSON (with full issue bodies) that exceeds the terminal tool's 20,000 char limit, causing parse failures. **Fix:** Use `gh search issues --json <specific-fields>` which produces compact output, rather than the raw REST API. |
 | `read_file` in `execute_code` returns line-numbered content | Inside `execute_code`, `read_file()` returns content with `LINE_NUM|CONTENT` prefix on each line. `json.loads()` will fail on this format. **Fix:** Use `terminal('cat <file>')` inside `execute_code` to get raw content for JSON parsing. |
+| Monorepo TypeScript testing | Monorepos (e.g., aws-powertools) need dependencies built first. Run `npx tsc --build` in each dependency package (e.g., `packages/commons`), then run tests from root: `npx vitest run packages/metrics/tests/unit/creatingMetrics.test.ts`. Don't run from the package directory — inter-package resolution fails. |
+| Vitest mock only affects one call | When mocking a method that should throw only on the first call (e.g., test error path then verify recovery), use `vi.spyOn(obj, 'method').mockImplementationOnce(...)` instead of `mockImplementation`. Otherwise the mock persists across all subsequent calls. |
+| EMF test helper 1-based indexing | Vitest helpers like `toHaveEmittedNthEMFWith` use 1-based indexing. If `publishStoredMetrics` throws before logging, the first successful EMF is at index 1 (not 2). Account for thrown calls not producing log output. |
+| CI `action_required` for fork PRs | Fork PRs may show CI with `action_required` conclusion — the repo requires maintainer approval for first-time contributors. You cannot approve (no admin rights on upstream). This is normal; wait for maintainer approval or note it in the PR. |
+- **Maintainer implements fix themselves** — Some maintainers prefer to fix issues themselves rather than merge external PRs (e.g., projectsveltos). Respond promptly, acknowledge their fix, leave a constructive comment deferring to their approach, and don't push back. Update wiki accordingly.
+- **`gh pr view --json` lacks `mergeableState`** — The `gh` CLI `pr view --json` doesn't support `mergeableState` field (unlike REST API). Use `gh pr checks <NUM> --repo <owner>/<repo>` to check CI status, or query `gh api repos/.../pulls/<num>` for REST fields.
+- **Stale fork after merge conflict** — When merging upstream into a stale fork, the merge can bring in dozens of files. **Fix:** `git reset --hard origin/main` to drop the merge, then re-apply your change cleanly on top of the fork's current state. This produces a clean diff with only your change.
 
 ## Recovery — Terminal Lost Mid-Session
 
@@ -605,3 +628,48 @@ Based on user preferences:
 43. Prefer gh CLI --json over raw curl for issue search — curl output exceeds 20k char terminal limit with full bodies.
 44. In execute_code, read_file() returns LINE|CONTENT format — use terminal('cat <file>') for raw JSON parsing.
 ```
+
+## Lessons Learned (Week of 2026-04-23)
+
+### What Worked
+- **Scheduling oss-contributor as a cron job** — running the workflow on a schedule means PRs are being checked without prompting. The passive coverage on open PRs between manual sessions is a significant improvement.
+- **Contributions.md as the single source of truth** — logging PRs to `~/.hermes/wiki/contributions.md` with structured sections (Open PRs, Pending Review, Submitted) keeps everything trackable across sessions.
+- **Checking CONTRIBUTING.md before cloning** — the AI policy check prevents wasted effort on repos that ban AI contributions. The yamada-ui closure was a direct result of skipping this step.
+- **Score-based issue selection** — scoring issues by stars, recency, description quality, and labels produces a ranked list that consistently surfaces good candidates.
+- **Post-mortem workflow** — analyzing closed PRs with the 5-whys method extracts maximum learning. The yamada-ui AI policy violation and hermes-agent duplicate closure both produced actionable prevention steps.
+
+### What Didn't Work
+- **Patch tool fuzzy matching on JSON** — the kana-dojo theme update corrupted the coastal-breeze entry because the patch anchor matched the wrong JSON object. **Fix:** use the last entry's unique content (e.g., unique color value) as the old_string anchor, not structural patterns like `},  ]`.
+- **contributions.md corruption** — overly broad patches marked 5 still-open PRs as "CLOSED by btabaska" when updating the log. **Fix:** rewrite the entire file with `write_file` instead of patching, or use extremely specific anchors.
+- **GITHUB_TOKEN env var overriding keyring** — the env var has narrower scopes than the keyring token, causing 403 errors on PR creation and notifications. **Fix:** `unset GITHUB_TOKEN` before every `gh` command.
+- **Ghost sessions** — sessions with 76+ messages lose context between turns. Session search only gives titles and previews, not full context. This makes it hard to reconstruct what happened in a prior session.
+- **Vercel CI on nouns-builder #939** — the Vercel deployment fails with "Authorization required" for external contributors. This is a team-side config issue, not a code problem. There's nothing to fix.
+- **Silent PR closures** — simpler-grants-gov #9820 (175 lines of tests) was closed without merge, comment, or explanation. Some maintainers just close PRs. This is unavoidable.
+
+### Concrete Fixes Applied
+- Added `patch in repetitive files` pitfall — use last entry's unique value as anchor
+- Added `contributions.md corruption` workaround — rewrite instead of patch
+- Added `GITHUB_TOKEN` env var override pitfall
+- Added `Ghost sessions` lesson — session search limitations
+- Added `Vercel CI expected failure` lesson for fork PRs
+- Added `Silent closures` lesson — some maintainers close without comment
+
+## Changelog
+
+### v1.2.0 (2026-04-30)
+- Added `Lessons Learned` section — comprehensive week-of-2026-04-23 review
+- Added `patch in repetitive files` pitfall — use last entry's unique value as anchor
+- Added `contributions.md corruption` workaround — rewrite instead of patch
+- Added `GITHUB_TOKEN` env var override pitfall
+- Added `Ghost sessions` lesson — session search limitations
+- Added `Vercel CI expected failure` lesson for fork PRs
+- Added `Silent closures` lesson — some maintainers close without comment
+- Added `Stale fork after merge conflict` pitfall — reset --hard origin/main and re-apply change cleanly
+- Added `Data-only PR checklist` lesson — when PR template has code-specific checklists (e.g., npm run check), mark N/A honestly for JSON/data-only changes
+
+### v1.1.0 (2026-04-24)
+- Added manifest: always_load (CANONICAL.md, identity.md), context (user.md)
+- Added meta-workflow section (five-step orchestration + four principles)
+
+### v1.0.0 (2026-04-22)
+- Initial release
