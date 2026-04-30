@@ -333,7 +333,7 @@ gh pr create \
 
 ### Step 6: Log Outcome
 
-Append entry to `~/.hermes/wiki/contributions.md`:
+Append entry to `$VAULT/wiki/contributions.md`:
 
 ```markdown
 ## YYYY-MM-DD - <Repo> #<Issue>
@@ -431,7 +431,7 @@ If CI fails:
 
 ### 7.6: Update Wiki
 
-After each follow-up action, update `~/.hermes/wiki/contributions.md`:
+After each follow-up action, update `$VAULT/wiki/contributions.md`:
 - Add `**Follow-up (YYYY-MM-DD):**` section to the contribution entry
 - Log what was done: review addressed, file removed, duplicate comment left
 - Add new lessons learned
@@ -536,7 +536,7 @@ Sort descending and pick the highest-scored unassigned issue with a clear descri
 
 If terminal access is lost after push but before PR creation:
 
-1. **Log immediately** — Add entry to `~/.hermes/wiki/contributions.md` as `IN_PROGRESS`:
+1. **Log immediately** — Add entry to `$VAULT/wiki/contributions.md` as `IN_PROGRESS`:
    ```markdown
    ## YYYY-MM-DD - <Repo> #<Issue>
    **Status:** IN_PROGRESS (pushed, PR pending)
@@ -633,7 +633,7 @@ Based on user preferences:
 
 ### What Worked
 - **Scheduling oss-contributor as a cron job** — running the workflow on a schedule means PRs are being checked without prompting. The passive coverage on open PRs between manual sessions is a significant improvement.
-- **Contributions.md as the single source of truth** — logging PRs to `~/.hermes/wiki/contributions.md` with structured sections (Open PRs, Pending Review, Submitted) keeps everything trackable across sessions.
+- **Contributions.md as the single source of truth** — logging PRs to `$VAULT/wiki/contributions.md` with structured sections (Open PRs, Pending Review, Submitted) keeps everything trackable across sessions.
 - **Checking CONTRIBUTING.md before cloning** — the AI policy check prevents wasted effort on repos that ban AI contributions. The yamada-ui closure was a direct result of skipping this step.
 - **Score-based issue selection** — scoring issues by stars, recency, description quality, and labels produces a ranked list that consistently surfaces good candidates.
 - **Post-mortem workflow** — analyzing closed PRs with the 5-whys method extracts maximum learning. The yamada-ui AI policy violation and hermes-agent duplicate closure both produced actionable prevention steps.
